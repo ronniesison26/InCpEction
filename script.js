@@ -49,21 +49,31 @@ function controlFanAutomatically() {
 function updateFanStatus(on) { S.fan = on; cmd('fan', { on }) }
 function setManualFanControl(on) { S.mode = 'MANUAL'; updateFanStatus(on); toast('Manual mode: fan ' + (on ? 'ON' : 'OFF') + (S.live ? '' : ' (simulated, not sent to hardware)')); render() }
 function enableAutomaticMode() { S.mode = 'AUTO'; cmd('mode', { mode: 'AUTO' }); controlFanAutomatically(); render() }
-function detectVibration() {
-    if (S.alert && !S.alert.acked) return; /* no duplicate alert/buzzer for an unresolved event */
-    const a = { id: Date.now(), t: now(), acked: false, sim: !S.live }; S.alert = a; S.alerts.push(a); S.vib = true;
-    addAccessLog({ user: 'System', uid: '-', action: 'Security Alert', status: 'Alert', details: 'Vibration Detected' });
-    createNotification('sec', 'Vibration detected – possible unauthorized access to the cabinet'); activateBuzzer(); save(); render()
+/* ===== sound (Web Audio; browsers allow it after the first click, e.g. the login click) ===== */
+const snd = {
+    ctx: null, iv: null,
+    beep(f, d, t) { try { this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)(); const c = this.ctx; if (c.state === 'suspended') c.resume(); const o = c.createOscillator(), g = c.createGain(), a = c.currentTime + (t || 0); o.type = 'square'; o.frequency.value = f; g.gain.setValueAtTime(.12, a); g.gain.exponentialRampToValueAtTime(.001, a + d); o.connect(g); g.connect(c.destination); o.start(a); o.stop(a + d) } catch (e) { } },
+    denied() { if (cfg.buzzer) [0, .25, .5].forEach(t => this.beep(900, .18, t)) }, /* unauthorized card: 3 short beeps */
+    start() { if (this.iv || !cfg.buzzer) return; const p = () => { this.beep(1000, .3, 0); this.beep(700, .3, .35) }; p(); this.iv = setInterval(p, 800) }, /* siren until silenced */
+    stop() { clearInterval(this.iv); this.iv = null }
+};
+/* One alert path for vibration and forced door. No duplicate while an alert is unresolved. */
+function raiseAlert(title, msg) {
+    if (S.alert && !S.alert.acked) return;
+    const a = { id: Date.now(), t: now(), acked: false, sim: !S.live, title, msg }; S.alert = a; S.alerts.push(a); S.vib = /vibration/i.test(title);
+    addAccessLog({ user: 'System', uid: '-', action: 'Security Alert', status: 'Alert', details: title });
+    createNotification('sec', title + ' – ' + msg); activateBuzzer(); save(); render()
 }
-function activateBuzzer() { if (!cfg.buzzer || S.buzzer) return; S.buzzer = true; cmd('buzzer', { on: true }) }
-function silenceBuzzer() { S.buzzer = false; cmd('buzzer', { on: false }); render() } /* alert stays active */
-function acknowledgeAlert() { if (!S.alert) return; S.alert.acked = true; S.alert.ackT = now(); S.alert = null; S.vib = false; S.buzzer = false; cmd('buzzer', { on: false }); createNotification('info', 'Security alert acknowledged'); save(); render() }
+function detectVibration() { raiseAlert('Vibration Detected', 'Possible unauthorized access to the cabinet.') }
+function activateBuzzer() { if (!cfg.buzzer || S.buzzer) return; S.buzzer = true; cmd('buzzer', { on: true }); snd.start() }
+function silenceBuzzer() { S.buzzer = false; snd.stop(); cmd('buzzer', { on: false }); render() } /* alert stays active */
+function acknowledgeAlert() { if (!S.alert) return; S.alert.acked = true; S.alert.ackT = now(); S.alert = null; S.vib = false; S.buzzer = false; snd.stop(); cmd('buzzer', { on: false }); createNotification('info', 'Security alert acknowledged'); save(); render() }
 function processRFIDAccess(uid) {
     const u = S.users.find(x => x.uid === uid);
     if (u && u.active) { S.lock = S.lock === 'LOCKED' ? 'UNLOCKED' : 'LOCKED'; cmd('lock', { lock: S.lock }); addAccessLog({ user: u.user, uid, action: 'Access Attempt', status: 'Granted', details: S.lock === 'UNLOCKED' ? 'Door Unlocked' : 'Cabinet Locked' }) }
-    else { addAccessLog({ user: u ? u.user : 'Guest', uid: uid || '0000', action: 'Access Attempt', status: 'Denied', details: u ? 'Card deactivated' : 'Unauthorized Card' }); createNotification('sec', 'Unauthorized RFID access attempt (card #' + (uid || '0000') + ')') } render()
+    else { snd.denied(); addAccessLog({ user: u ? u.user : 'Guest', uid: uid || '0000', action: 'Access Attempt', status: 'Denied', details: u ? 'Card deactivated' : 'Unauthorized Card' }); createNotification('sec', 'Unauthorized RFID access attempt (card #' + (uid || '0000') + ')') } render()
 }
-function updateDoorStatus(s) { if (s === 'OPEN' && S.door !== 'OPEN' && S.lock === 'LOCKED') createNotification('warn', 'Door unexpectedly opened while cabinet locked'); S.door = s; render() }
+function updateDoorStatus(s) { const forced = s === 'OPEN' && S.door !== 'OPEN' && S.lock === 'LOCKED'; S.door = s; if (forced) raiseAlert('Door Forced Open', 'Door opened while the cabinet is locked.'); else render() }
 function updateCabinetLockStatus(s) { S.lock = s; cmd('lock', { lock: s }); render() }
 function updateTemperature(v) { S.temp = v; const h = { t: now(), temp: +v.toFixed(1), hum: Math.round(S.hum), sim: !S.live }; S.hist.push(h); controlFanAutomatically() }
 function updateHumidity(v) { S.hum = v }
@@ -122,7 +132,7 @@ P.dashboard = () => {
  <div class="grid two" style="margin-top:14px"><div class="glass"><b>Latest Activity</b> <a class="mu" href="#logs" style="float:right">View All</a>
  ${recent.map(l => `<div class="ev"><span>${l.status === 'Granted' ? '✅' : l.status === 'Denied' ? '⛔' : '⚠️'}</span><div><b>RFID ${l.action === 'Security Alert' ? l.details : 'Access ' + l.status}</b>${l.sim ? ' <span class="chip sim">SIM</span>' : ''}<br><small>${fmt(l.t)} · ${esc(l.user)}</small></div></div>`).join('')}</div>
  <div class="glass ${a ? 'alert' : ''}"><b style="color:${a ? '#ff7b7b' : 'inherit'}">${a ? '🚨 SECURITY ALERT' : '🛡 Security Alert'}</b>
- ${a ? `<p><b>Vibration Detected!</b><br>Possible unauthorized access to the cabinet.<br><small>${fmt(a.t)}${a.sim ? ' · simulated' : ''}</small></p><button class="btn r s" ${S.buzzer ? '' : 'disabled'} onclick="silenceBuzzer()">🔕 Silence Buzzer</button> <button class="btn s" onclick="acknowledgeAlert()">Acknowledge Alert</button>` : '<p class="mu">No active alerts.</p>'}</div></div>
+ ${a ? `<p><b>${esc(a.title || 'Vibration Detected')}!</b><br>${esc(a.msg || 'Possible unauthorized access to the cabinet.')}<br><small>${fmt(a.t)}${a.sim ? ' · simulated' : ''}</small></p><button class="btn r s" ${S.buzzer ? '' : 'disabled'} onclick="silenceBuzzer()">🔕 Silence Buzzer</button> <button class="btn s" onclick="acknowledgeAlert()">Acknowledge Alert</button>` : '<p class="mu">No active alerts.</p>'}</div></div>
  <div class="glass" style="margin-top:14px"><b>Simulation controls</b> <span class="mu">${S.live ? '(Live hardware connected: sim controls disabled)' : 'Generates clearly labelled simulated events'}</span><div class="row" style="margin-top:10px">${S.live ? '' : `
  <button class="btn s" onclick="detectVibration()">Simulate vibration</button><button class="btn s" onclick="processRFIDAccess('1047')">Scan Admin card</button><button class="btn s" onclick="processRFIDAccess('9999')">Scan unknown card</button><button class="btn s" onclick="updateDoorStatus(S.door==='OPEN'?'CLOSED':'OPEN')">Toggle door</button><button class="btn s" onclick="updateTemperature(S.temp+2)">+2°C</button><button class="btn s" onclick="updateTemperature(S.temp-2)">−2°C</button>`}</div></div>`
 };
@@ -158,7 +168,7 @@ P.security = () => {
  <div class="grid"><div class="glass">🔒 Cabinet<br><span class="st ${S.lock === 'LOCKED' ? '' : 'w'}">${S.lock}</span></div><div class="glass">🚪 Door<br><span class="st ${S.door === 'CLOSED' ? '' : 'w'}">${S.door}</span></div>
  <div class="glass">📳 Vibration<br><span class="st ${S.vib ? 'd' : ''}">${S.vib ? 'DETECTED' : 'NONE'}</span></div><div class="glass">🔔 Buzzer<br><span class="st ${S.buzzer ? 'd' : 'i'}">${S.buzzer ? 'SOUNDING' : 'SILENT'}</span></div></div>
  ${a ? `<div class="glass alert" style="margin-top:14px"><b>Active alert</b> · ${fmt(a.t)}<br><button class="btn r s" onclick="silenceBuzzer()">Silence Buzzer</button> <button class="btn s" onclick="acknowledgeAlert()">Acknowledge Alert</button></div>` : ''}
- <div class="glass tw" style="margin-top:14px"><b>Security event history</b><table><tr><th>Time</th><th>Event</th><th>Alert status</th></tr>${S.alerts.slice().reverse().map(x => `<tr><td>${fmt(x.t)}${x.sim ? ' <span class="chip sim">SIM</span>' : ''}</td><td>Vibration Detected</td><td><span class="st ${x.acked ? 'i' : 'd'}">${x.acked ? 'Acknowledged ' + fmt(x.ackT) : 'Active'}</span></td></tr>`).join('') || '<tr><td colspan=3 class="mu">No security events recorded.</td></tr>'}</table></div>`
+ <div class="glass tw" style="margin-top:14px"><b>Security event history</b><table><tr><th>Time</th><th>Event</th><th>Alert status</th></tr>${S.alerts.slice().reverse().map(x => `<tr><td>${fmt(x.t)}${x.sim ? ' <span class="chip sim">SIM</span>' : ''}</td><td>${esc(x.title || 'Vibration Detected')}</td><td><span class="st ${x.acked ? 'i' : 'd'}">${x.acked ? 'Acknowledged ' + fmt(x.ackT) : 'Active'}</span></td></tr>`).join('') || '<tr><td colspan=3 class="mu">No security events recorded.</td></tr>'}</table></div>`
 };
 P.users = () => {
     const r = S.users.filter(u => (u.name + u.user + u.uid).toLowerCase().includes(uq.toLowerCase()));
