@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>InCpEction</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="login">
+        <div class="brand hero">
+            <svg class="hlogo" viewBox="0 0 120 130" aria-hidden="true">
+                <path d="M60 6 108 24v38c0 31-20 52-48 62C32 114 12 93 12 62V24z" fill="rgba(20,60,150,.35)"
+                    stroke="#e8f0ff" stroke-width="5" stroke-linejoin="round" />
+                <path d="M50 36h20M52 36v22L36 92c-3 6 1 11 7 11h34c6 0 10-5 7-11L68 58V36" fill="none" stroke="#e8f0ff"
+                    stroke-width="5" stroke-linejoin="round" stroke-linecap="round" />
+                <path d="M42 84h36l8 14c2 3 0 5-3 5H37c-3 0-5-2-3-5z" fill="#2f7bff" />
+                <circle cx="55" cy="72" r="2.5" fill="#7fb0ff" />
+                <circle cx="64" cy="64" r="2" fill="#7fb0ff" />
+            </svg>
+            <h1>In<b>CpE</b>ction</h1>
+            <div class="pulse"></div>
+            <p class="tag"><i>Monitor.</i> <i>Secure.</i> <i>Innovate.</i></p>
+            <div class="feats">
+                <div><span>🌡</span>Real-Time<br>Monitoring</div>
+                <div><span>🔒</span>Advanced<br>Security</div>
+                <div><span>📡</span>RFID Access<br>Tracking</div>
+            </div>
+        </div>
+        <div class="glass lcard">
+            <h2 style="text-align:center;font-size:30px;margin-bottom:6px">Welcome <b class="bl">Back</b>!</h2>
+            <p class="sub" style="text-align:center">Sign in to access the laboratory monitoring system.</p>
+            <div class="fld"><span>👤</span><input id="lu" placeholder="Username" autocomplete="username"></div>
+            <div class="fld"><span>🔒</span><input id="lp" type="password" placeholder="Password"
+                    autocomplete="current-password"><button class="eye" id="eye" type="button"
+                    aria-label="Show or hide password">👁</button></div>
+            <div class="err" id="lerr"></div><button class="btn lgo" id="lgo">Log In <span>&rarr;</span></button>
+            <p class="secure"><i></i>Secure Access<i></i></p>
+            <div class="shield">🛡</div>
+        </div>
+    </div>
+    <div id="app" class="hid">
+        <aside id="side">
+            <div class="brand">
+                <div class="logo">🛡️</div>
+                <h1>In<b>CpE</b>ction</h1>
+            </div>
+            <nav id="nav"></nav>
+        </aside>
+        <div class="mainw">
+            <div class="top"><button class="btn g s mb" id="burger">☰ Menu</button><span id="modechip"
+                    class="chip"></span><span class="chip live" id="conn">● System Online</span><button class="btn g s"
+                    id="bell">🔔 <span id="bc">0</span></button><span>👤 Administrator</span></div>
+            <main id="main"></main>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+
+</html>
