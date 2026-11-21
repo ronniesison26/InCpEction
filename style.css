@@ -934,3 +934,24 @@ nav a:hover {
 #side .brand:focus-visible {
     outline: 2px solid var(--bl)
 }
+
+/* ===== Image logo ===== */
+img.hlogo {
+    width: 220px;
+    height: auto;
+    filter: drop-shadow(0 0 22px rgba(47, 123, 255, .8))
+}
+
+.slogo {
+    width: 92px;
+    height: auto;
+    display: block;
+    margin: 0 auto 4px;
+    filter: drop-shadow(0 0 10px rgba(47, 123, 255, .7))
+}
+
+@media(max-width:800px) {
+    img.hlogo {
+        width: 110px
+    }
+}
