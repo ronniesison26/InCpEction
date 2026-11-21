@@ -46,7 +46,7 @@ function controlFanAutomatically() {
     if (S.temp >= cfg.on && !S.fan) { updateFanStatus(true); createNotification('warn', 'High temperature ' + S.temp.toFixed(1) + '°C – exhaust fan automatically activated') }
     else if (S.temp <= cfg.off && S.fan) { updateFanStatus(false); createNotification('info', 'Temperature returned to normal (' + S.temp.toFixed(1) + '°C) – fan turned off') }
 }
-function updateFanStatus(on) { S.fan = on; cmd('fan', { on }) }
+function updateFanStatus(on) { if (S.fan !== on) snd.fan(on); S.fan = on; cmd('fan', { on }) }
 function setManualFanControl(on) { S.mode = 'MANUAL'; updateFanStatus(on); toast('Manual mode: fan ' + (on ? 'ON' : 'OFF') + (S.live ? '' : ' (simulated, not sent to hardware)')); render() }
 function enableAutomaticMode() { S.mode = 'AUTO'; cmd('mode', { mode: 'AUTO' }); controlFanAutomatically(); render() }
 /* ===== sound (Web Audio; browsers allow it after the first click, e.g. the login click) ===== */
@@ -57,6 +57,14 @@ const snd = {
     start() { if (this.iv || !cfg.buzzer) return; const p = () => { this.beep(1000, .3, 0); this.beep(700, .3, .35) }; p(); this.iv = setInterval(p, 800) }, /* siren until silenced */
     stop() { clearInterval(this.iv); this.iv = null }
 };
+/* UI + fan sounds (separate from the alarm; can be switched off in Settings) */
+Object.assign(snd, {
+    sfx() { return cfg.sfx !== false },
+    tone(f1, f2, d, type, vol, t) { if (!this.sfx()) return; try { this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)(); const c = this.ctx; if (c.state === 'suspended') c.resume(); const o = c.createOscillator(), g = c.createGain(), a = c.currentTime + (t || 0); o.type = type; o.frequency.setValueAtTime(f1, a); o.frequency.exponentialRampToValueAtTime(f2, a + d); g.gain.setValueAtTime(vol, a); g.gain.exponentialRampToValueAtTime(.001, a + d); o.connect(g); g.connect(c.destination); o.start(a); o.stop(a + d) } catch (e) { } },
+    nav() { this.tone(380, 640, .14, 'sine', .06) },
+    welcome() { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, f, .3, 'sine', .07, i * .11)) },
+    fan(on) { if (on) { this.tone(120, 520, .8, 'sawtooth', .04); this.tone(100, 400, .8, 'triangle', .05) } else this.tone(480, 90, .9, 'sawtooth', .04) }
+}); /* fan spin-up / spin-down, manual or automatic */
 /* One alert path for vibration and forced door. No duplicate while an alert is unresolved. */
 function raiseAlert(title, msg) {
     if (S.alert && !S.alert.acked) return;
@@ -82,7 +90,7 @@ function updateDashboard() { render(); bell() }
 const iot = {
     ws: null, tries: 0, url: '',
     valid(d) { return d && typeof d.temperature === 'number' && typeof d.humidity === 'number' && d.temperature > -40 && d.temperature < 125 },
-    apply(d) { if (!this.valid(d)) return console.warn('Invalid sensor payload'); S.hum = d.humidity; S.fan = !!d.fanStatus; S.mode = d.fanMode === 'MANUAL' ? 'MANUAL' : 'AUTO'; S.door = d.doorStatus || S.door; S.lock = d.cabinetLock || S.lock; if (typeof d.batteryLevel === 'number') S.batt = d.batteryLevel; updateTemperature(d.temperature); if (d.vibrationDetected) detectVibration(); updateDashboard() },
+    apply(d) { if (!this.valid(d)) return console.warn('Invalid sensor payload'); S.hum = d.humidity; if (S.fan !== !!d.fanStatus) snd.fan(!!d.fanStatus); S.fan = !!d.fanStatus; S.mode = d.fanMode === 'MANUAL' ? 'MANUAL' : 'AUTO'; S.door = d.doorStatus || S.door; S.lock = d.cabinetLock || S.lock; if (typeof d.batteryLevel === 'number') S.batt = d.batteryLevel; updateTemperature(d.temperature); if (d.vibrationDetected) detectVibration(); updateDashboard() },
     send(c, p) { if (this.ws && this.ws.readyState === 1) { this.ws.send(JSON.stringify({ command: c, ...p })); return true } return false }
 };
 function connectToIoTDevice(url) {
@@ -123,7 +131,7 @@ P.dashboard = () => {
     return `<h2>Dashboard</h2><p class="sub">Real-time laboratory status overview.</p>
  <div class="grid"><div class="glass"><span class="mu">🌡 Temperature</span>${tag()}<div class="big">${S.temp.toFixed(1)} °C</div><span class="st ${tc}">${ts}</span></div>
  <div class="glass"><span class="mu">💧 Humidity</span>${tag()}<div class="big">${Math.round(S.hum)}%</div><span class="st ${hc}">${hs}</span></div>
- <div class="glass"><span class="mu">🌀 Exhaust Fan</span> <span class="st ${S.fan ? '' : 'i'}">${S.fan ? 'ON' : 'OFF'}</span> <span class="st ${S.mode === 'MANUAL' ? 'w' : 'i'}">${S.mode === 'MANUAL' ? 'MANUAL MODE' : 'AUTO MODE'}</span>
+ <div class="glass"><span class="mu"><span class="fanic${S.fan ? ' spin' : ''}" style="animation-delay:-${(Date.now() % 1000) / 1000}s">🌀</span> Exhaust Fan</span> <span class="st ${S.fan ? '' : 'i'}">${S.fan ? 'ON' : 'OFF'}</span> <span class="st ${S.mode === 'MANUAL' ? 'w' : 'i'}">${S.mode === 'MANUAL' ? 'MANUAL MODE' : 'AUTO MODE'}</span>
  <p class="mu" style="margin:8px 0">ON ≥ ${cfg.on}°C · OFF ≤ ${cfg.off}°C</p><button class="btn s" onclick="setManualFanControl(${!S.fan})">Turn ${S.fan ? 'Off' : 'On'}</button> ${S.mode === 'MANUAL' ? '<button class="btn g s" onclick="enableAutomaticMode()">Return to Auto</button>' : ''}</div></div>
  <div class="grid" style="margin-top:14px"><div class="glass">🔒 Cabinet Lock<br><span class="st ${S.lock === 'LOCKED' ? '' : 'w'}">${S.lock}</span></div>
  <div class="glass">🚪 Door<br><span class="st ${S.door === 'CLOSED' ? '' : 'w'}">${S.door}</span></div>
@@ -193,7 +201,7 @@ P.notifs = () => `<h2>Notifications</h2><p class="sub">Red: security · Yellow: 
 P.settings = () => `<h2>Settings</h2><p class="sub">Browser settings are saved locally. Nothing is sent to hardware unless a device is connected.</p>
  <div class="grid two"><div class="glass"><b>Temperature</b><label>Fan ON threshold (°C)</label><input id="s_on" type="number" step=".5" value="${cfg.on}"><label>Fan OFF threshold (°C)</label><input id="s_off" type="number" step=".5" value="${cfg.off}">
  <label>Fan mode</label><select id="s_mode"><option ${S.mode === 'AUTO' ? 'selected' : ''}>AUTO</option><option ${S.mode === 'MANUAL' ? 'selected' : ''}>MANUAL</option></select>
- <label><input type="checkbox" id="s_buz" style="width:auto" ${cfg.buzzer ? 'checked' : ''}> Buzzer enabled on alerts</label><label><input type="checkbox" id="s_not" style="width:auto" ${cfg.notif ? 'checked' : ''}> Show system notifications</label>
+ <label><input type="checkbox" id="s_buz" style="width:auto" ${cfg.buzzer ? 'checked' : ''}> Buzzer enabled on alerts</label><label><input type="checkbox" id="s_not" style="width:auto" ${cfg.notif ? 'checked' : ''}> Show system notifications</label><label><input type="checkbox" id="s_sfx" style="width:auto" ${cfg.sfx !== false ? 'checked' : ''}> Interface &amp; fan sounds</label>
  <div class="err" id="serr"></div><button class="btn" onclick="saveSettings()">Save settings</button> <span class="st i">Saved in browser only</span></div>
  <div class="glass"><b>IoT device</b><p>Mode: <span class="chip ${S.live ? 'live' : 'sim'}">${S.live ? 'LIVE HARDWARE' : 'SIMULATION'}</span></p><label>ESP32 WebSocket URL</label><input id="s_dev" placeholder="ws://192.168.1.50:81" value="${esc(cfg.device)}">
  <div class="row" style="margin-top:10px"><button class="btn s" onclick="cfg.device=$('#s_dev').value.trim();save();connectToIoTDevice(cfg.device)">Connect</button><button class="btn g s" onclick="disconnectFromIoTDevice()">Disconnect</button></div>
@@ -202,7 +210,7 @@ P.settings = () => `<h2>Settings</h2><p class="sub">Browser settings are saved l
  <div class="err" id="aerr"></div><button class="btn" onclick="saveAcct()">Update account</button></div></div>`;
 function saveSettings() {
     const on = +$('#s_on').value, off = +$('#s_off').value; if (!(off < on)) return $('#serr').textContent = 'OFF threshold must be lower than ON threshold.';
-    cfg.on = on; cfg.off = off; cfg.buzzer = $('#s_buz').checked; cfg.notif = $('#s_not').checked; const m = $('#s_mode').value; if (m !== S.mode) { m === 'AUTO' ? enableAutomaticMode() : (S.mode = 'MANUAL') } save(); toast('Settings saved in this browser' + (S.live ? '' : ' (not sent to a device)')); render()
+    cfg.on = on; cfg.off = off; cfg.buzzer = $('#s_buz').checked; cfg.notif = $('#s_not').checked; cfg.sfx = $('#s_sfx').checked; const m = $('#s_mode').value; if (m !== S.mode) { m === 'AUTO' ? enableAutomaticMode() : (S.mode = 'MANUAL') } save(); toast('Settings saved in this browser' + (S.live ? '' : ' (not sent to a device)')); render()
 }
 function saveAcct() { const u = $('#a_u').value.trim(), p = $('#a_p').value; if (!u) return $('#aerr').textContent = 'Username is required.'; if (p && p.length < 6) return $('#aerr').textContent = 'Password needs at least 6 characters.'; cfg.admin = u; if (p) cfg.pass = p; save(); toast('Account updated'); $('#a_p').value = '' }
 /* ===== routing + render ===== */
@@ -215,13 +223,24 @@ function render() {
     const lq = $('#lq'); if (lq) lq.oninput = e => { lf.q = e.target.value; lf.pg = 1; const p = e.target.selectionStart; render(); const n = $('#lq'); n.focus(); n.setSelectionRange(p, p) };
     const uqe = $('#uq'); if (uqe) uqe.oninput = e => { uq = e.target.value; const p = e.target.selectionStart; render(); const n = $('#uq'); n.focus(); n.setSelectionRange(p, p) }
 }
-function route() { const h = location.hash.slice(1); page = P[h] ? h : 'dashboard'; $('#side').classList.remove('open'); render() }
+function enter() { const m = $('#main'); m.classList.remove('enter'); void m.offsetWidth; m.classList.add('enter'); clearTimeout(enter.t); enter.t = setTimeout(() => m.classList.remove('enter'), 1000) }
+function route() { const h = location.hash.slice(1); page = P[h] ? h : 'dashboard'; $('#side').classList.remove('open'); render(); enter() }
+$('#nav').addEventListener('click', e => { if (e.target.closest('a')) snd.nav() });
 addEventListener('hashchange', route); addEventListener('resize', () => page === 'temp' && render());
 $('#burger').onclick = () => $('#side').classList.toggle('open'); $('#bell').onclick = () => location.hash = 'notifs';
 /* ===== auth (demo only; frontend login is NOT secure) ===== */
-function showApp() { const ok = ls.get('inc_auth', false); $('#login').classList.toggle('hid', ok); $('#app').classList.toggle('hid', !ok); if (ok) { route(); bell() } }
-function logout() { ls.set('inc_auth', false); location.hash = ''; showApp() }
+/* Login lasts only for this browser tab/session, so opening the app again always asks for the password. */
+const auth = { m: false, get() { try { return sessionStorage.getItem('inc_auth') === '1' } catch (e) { return this.m } }, set(v) { this.m = v; try { v ? sessionStorage.setItem('inc_auth', '1') : sessionStorage.removeItem('inc_auth') } catch (e) { } } };
+try { localStorage.removeItem('inc_auth') } catch (e) { }
+function showApp() { const ok = auth.get(); $('#login').classList.toggle('hid', ok); $('#app').classList.toggle('hid', !ok); if (ok) { const a = $('#app'); a.classList.add('open'); setTimeout(() => a.classList.remove('open'), 1200); route(); bell() } }
+function logout() { auth.set(false); location.hash = ''; showApp() }
 $('#eye').onclick = () => { const p = $('#lp'); p.type = p.type === 'password' ? 'text' : 'password' };
-function login() { if ($('#lu').value.trim() === cfg.admin && $('#lp').value === cfg.pass) { ls.set('inc_auth', true); $('#lerr').textContent = ''; showApp() } else $('#lerr').textContent = 'Incorrect username or password. Try again.' }
+function login() { if ($('#lu').value.trim() === cfg.admin && $('#lp').value === cfg.pass) { auth.set(true); $('#lerr').textContent = ''; snd.welcome(); showApp() } else $('#lerr').textContent = 'Incorrect username or password. Try again.' }
 $('#lgo').onclick = login; $('#lp').onkeydown = e => { if (e.key === 'Enter') login() };
+/* Logo / name in the sidebar goes to the Dashboard */
+(() => {
+    const b = $('#side .brand'); b.setAttribute('role', 'link'); b.tabIndex = 0; b.title = 'Go to Dashboard';
+    const go = () => { snd.nav(); if (location.hash === '#dashboard') route(); else location.hash = 'dashboard' };
+    b.addEventListener('click', go); b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go() } })
+})();
 showApp();
