@@ -787,3 +787,150 @@ canvas {
         left: 0
     }
 }
+
+/* ===== Effects & transitions ===== */
+@keyframes pageIn {
+    from {
+        opacity: 0;
+        transform: translateY(16px)
+    }
+
+    to {
+        opacity: 1;
+        transform: none
+    }
+}
+
+@keyframes appIn {
+    from {
+        opacity: 0;
+        transform: scale(.985)
+    }
+
+    to {
+        opacity: 1;
+        transform: none
+    }
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-30px)
+    }
+
+    to {
+        opacity: 1;
+        transform: none
+    }
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg)
+    }
+}
+
+#login .hero {
+    animation: pageIn .8s ease both
+}
+
+#login .lcard {
+    animation: pageIn .8s .15s ease both
+}
+
+#app.open {
+    animation: appIn .7s ease both
+}
+
+#app.open aside {
+    animation: slideIn .6s ease both
+}
+
+#main.enter h2,
+#main.enter .sub {
+    animation: pageIn .4s ease both
+}
+
+#main.enter>.glass,
+#main.enter>.row {
+    animation: pageIn .5s .25s ease both
+}
+
+#main.enter .grid>.glass {
+    animation: pageIn .55s ease both
+}
+
+#main.enter .grid>.glass:nth-child(2) {
+    animation-delay: .06s
+}
+
+#main.enter .grid>.glass:nth-child(3) {
+    animation-delay: .12s
+}
+
+#main.enter .grid>.glass:nth-child(4) {
+    animation-delay: .18s
+}
+
+#main.enter .grid>.glass:nth-child(n+5) {
+    animation-delay: .24s
+}
+
+.glass {
+    transition: transform .2s, box-shadow .2s
+}
+
+nav a {
+    transition: background .2s, border-color .2s, box-shadow .2s
+}
+
+nav a:hover {
+    background: rgba(47, 123, 255, .15)
+}
+
+@media(hover:hover) {
+    .grid>.glass:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 0 22px rgba(47, 123, 255, .35)
+    }
+}
+
+.fanic {
+    display: inline-block
+}
+
+.fanic.spin {
+    animation: spin 1s linear infinite
+}
+
+@media(prefers-reduced-motion:reduce) {
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important
+    }
+}
+
+/* Clickable logo -> Dashboard */
+#side .brand {
+    cursor: pointer;
+    border-radius: 14px;
+    padding: 4px;
+    transition: filter .2s, transform .2s
+}
+
+#side .brand:hover {
+    filter: brightness(1.25) drop-shadow(0 0 8px rgba(47, 123, 255, .6))
+}
+
+#side .brand:active {
+    transform: scale(.97)
+}
+
+#side .brand:focus-visible {
+    outline: 2px solid var(--bl)
+}
